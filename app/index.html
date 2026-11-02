@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Simplifica MEI — Área do cliente (protótipo)</title>
+<title>Simplifica MEI — Área do cliente</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Nunito+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{--green:#14a064;--bg:#f2f8f5;--sf:#fff;--tx:#001028;--mu:#4a6878;--bd:#b8ddd0;--pale:#e6f4ef;--pri:#001450;--ptx:#fff;--wb:#fef3e2;--wt:#8a4b08;--side:#001450;--mine:#001450;--mtx:#fff;
 box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
@@ -84,79 +85,254 @@ aside button.nv{white-space:nowrap}
 <body>
 <div id="app"></div>
 <script>
+// === CONFIGURAÇÃO DO SUPABASE ===
+const SUPABASE_URL = 'https://wpnzxcabdgywyktbvdrg.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_5wTL2X5LlbKE41QLWSZCFw_UuiiEmSv'; 
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
 const $=s=>document.querySelector(s);
-const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const brl=n=>Number(n).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
-const LIM={Essencial:5,Premium:15};
-const S={role:null,view:'inicio',msg:'',
-clients:[{n:'Maria Souza',b:'Doces da Maria',plan:'Essencial',used:null},{n:'Carlos Lima',b:'CL Fretes',plan:'Premium',used:8},{n:'Ana Prado',b:'Ana Studio Foto',plan:'Essencial',used:5}],
-services:[{d:'Entrega de 40 caixas de brigadeiro',v:480,t:'28/10/2026'},{d:'Bolo de aniversário (encomenda)',v:220,t:'30/10/2026'},{d:'Kit festa 30 pessoas',v:390,t:'02/11/2026'}],
-notas:[{n:1,tom:'Padaria Central',d:'Entrega de doces',v:480,ex:false},{n:2,tom:'Joana Reis',d:'Bolo de aniversário',v:220,ex:false},{n:3,tom:'Buffet Alegria',d:'Kit festa',v:390,ex:false}],
-boletos:[{id:1,d:'Mensalidade Simplifica MEI — novembro',v:149,venc:'10/11/2026',pago:false,l:'23793.38128 60000.000003 00000.000408 1 98760000014900'},{id:2,d:'DAS MEI — novembro',v:86.05,venc:'20/11/2026',pago:false,l:'85850000000 0 86050001128 3 11202600000 6 00000000000 1'},{id:3,d:'DAS MEI — outubro',v:86.05,venc:'20/10/2026',pago:true,l:''}],
-msgs:[{f:'p',t:'Oi, Maria! O DAS de novembro já está disponível na aba Boletos.',h:'09:12'},{f:'c',t:'Perfeito, obrigada! Preciso emitir uma nota hoje ainda.',h:'09:20'}]};
-const me=()=>S.clients[0];
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const brl=n=>Number(n||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const dt=d=>d?new Date(d+(d.length===10?'T12:00:00':'')).toLocaleDateString('pt-BR'):'';
+const hm=d=>d?new Date(d).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';
+const LIM={Essencial:5,Premium:10};
+
+const S={
+  user:null, profile:null, mode:'login', view:'inicio', msg:'',
+  activeClientId:null,
+  clients:[], services:[], notas:[], boletos:[], msgs:[]
+};
+
+const isPrestador=()=>S.profile?.role==='prestador';
 const used=()=>S.notas.length;
-const lim=()=>LIM[me().plan];
-const hora=()=>new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+const lim=()=>LIM[S.profile?.plano||'Essencial']||5;
 
-function login(){return `<div class="login"><div class="lp"><div class="brand" style="padding:0"><span class="mark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Simplifica MEI</div><h1>Tudo do seu MEI, num só lugar.</h1><p>Notas, boletos, serviços e conversa com a gente, sem depender de planilha.</p></div>
-<div class="rp"><div class="card"><h2 style="font-size:22px">Entrar</h2><label>E-mail<input id="em" value="maria@docesdamaria.com.br" autocomplete="off"></label><label>Senha<input id="pw" type="password" value="123456"></label><button class="btn" data-a="in-c">Entrar como cliente</button><button class="btn ol" data-a="in-p">Entrar como prestador</button><p class="mu" style="font-size:12px">Protótipo: nenhum login real. Os dois botões mostram o que cada perfil enxerga.</p></div></div></div>`}
+async function loadData(){
+  if(!S.user)return;
+  const {data:prof}=await sb.from('profiles').select('*').eq('id',S.user.id).single();
+  S.profile=prof;
+  if(!prof)return;
 
-function vInicio(){const u=used(),l=lim(),p=me().plan,n=Math.max(u,l);
-const pips=Array.from({length:n},(_,i)=>`<i class="${i<u?(i>=l?'x':'on'):''}"></i>`).join('');
-const b=S.boletos.find(x=>!x.pago),tot=S.services.reduce((a,s)=>a+s.v,0),pr=p==='Premium';
-return `<div class="card hero"><h1>${u} de ${l} notas usadas em novembro</h1><div class="pips" aria-hidden="true">${pips}</div><p class="mu">${u<l?`Ainda dá para emitir ${l-u}.`:'Limite do plano atingido. Cada nota extra custa R$ 20.'}</p><div style="margin-top:14px"><button class="btn" data-a="go-notas">Emitir nota</button></div></div>
-<div class="grid"><div class="card"><h3>Próximo boleto</h3>${b?`<div class="big">${brl(b.v)}</div><p class="mu">${esc(b.d)}<br>vence em ${b.venc}</p><button class="btn ol sm" style="margin-top:10px" data-a="go-boletos">Ver boletos</button>`:'<p class="mu">Nenhum boleto em aberto.</p>'}</div>
-<div class="card"><h3>Serviços registrados</h3><div class="big">${brl(tot)}</div><p class="mu">${S.services.length} serviços neste mês</p><button class="btn ol sm" style="margin-top:10px" data-a="go-servicos">Registrar serviço</button></div>
-<div class="card ${pr?'':'lock'}"><h3>Contratação de funcionário</h3><p class="mu">${pr?'Admissão, registro e folha mensal pela nossa equipe.':'Disponível no plano Premium. Fale com a equipe para mudar de plano.'}</p><button class="btn ol sm" style="margin-top:10px" data-a="${pr?'go-chat':'go-chat'}" ${pr?'':'aria-disabled="true"'}>${pr?'Solicitar admissão':'Pedir upgrade'}</button></div></div>`}
+  if(isPrestador()){
+    const [{data:cls},{data:nts},{data:bls},{data:ms}]=await Promise.all([
+      sb.from('profiles').select('*').eq('role','cliente').order('nome'),
+      sb.from('notas').select('*').order('criado_em',{ascending:true}),
+      sb.from('boletos').select('*').order('vencimento',{ascending:true}),
+      sb.from('mensagens').select('*').order('criado_em',{ascending:true})
+    ]);
+    S.clients=cls||[];
+    S.notas=nts||[];
+    S.boletos=bls||[];
+    S.msgs=ms||[];
+    if(!S.activeClientId && S.clients.length) S.activeClientId=S.clients[0].id;
+  } else {
+    S.activeClientId=S.user.id;
+    const [{data:srvs},{data:nts},{data:bls},{data:ms}]=await Promise.all([
+      sb.from('servicos').select('*').eq('cliente_id',S.user.id).order('id',{ascending:false}),
+      sb.from('notas').select('*').eq('cliente_id',S.user.id).order('id',{ascending:true}),
+      sb.from('boletos').select('*').eq('cliente_id',S.user.id).order('vencimento',{ascending:true}),
+      sb.from('mensagens').select('*').eq('cliente_id',S.user.id).order('criado_em',{ascending:true})
+    ]);
+    S.services=srvs||[];
+    S.notas=nts||[];
+    S.boletos=bls||[];
+    S.msgs=ms||[];
+  }
+  render();
+}
 
-function vServ(){const rows=S.services.map(s=>`<tr><td>${esc(s.d)}</td><td>${s.t}</td><td>${brl(s.v)}</td></tr>`).join('');
-return `<div class="card"><div class="row"><label style="flex:2">Descrição do serviço<input id="sd" placeholder="Ex.: Entrega de 20 marmitas"></label><label>Valor (R$)<input id="sv" inputmode="decimal" placeholder="0,00"></label><button class="btn" data-a="add-serv">Registrar serviço</button></div><p class="mu" id="msg">${esc(S.msg)}</p></div>
-<div class="card tw" style="margin-top:16px"><table><thead><tr><th>Serviço</th><th>Data</th><th>Valor</th></tr></thead><tbody>${rows}</tbody></table></div>`}
+// Tempo real para novas mensagens
+sb.channel('chat-channel')
+  .on('postgres_changes',{event:'INSERT',schema:'public',table:'mensagens'},payload=>{
+    if(S.user){
+      S.msgs.push(payload.new);
+      if(S.view==='chat') render();
+    }
+  }).subscribe();
 
-function vNotas(){const u=used(),l=lim(),ex=u>=l;
-const rows=[...S.notas].reverse().map(n=>`<tr><td>nº ${n.n}</td><td>${esc(n.tom)}</td><td>${esc(n.d)}</td><td>${brl(n.v)}</td><td><span class="st ${n.ex?'a':''}">${n.ex?'Excedente R$ 20':'Emitida'}</span></td></tr>`).join('');
-return `<div class="proto">Protótipo: nenhuma nota com validade fiscal é emitida. Na versão real, esta tela chama uma API de emissão.</div>
-<div class="card">${ex?`<p class="proto" style="margin-bottom:12px">Você usou as ${l} notas do plano ${me().plan}. A próxima será cobrada à parte (R$ 20).</p>`:''}<div class="row"><label>Tomador<input id="nt" placeholder="Nome ou CNPJ do cliente"></label><label style="flex:2">Serviço prestado<input id="nd" placeholder="Descrição na nota"></label><label>Valor (R$)<input id="nv" inputmode="decimal" placeholder="0,00"></label><button class="btn" data-a="add-nota">${ex?'Emitir nota (R$ 20)':'Emitir nota'}</button></div><p class="mu">${esc(S.msg)}</p></div>
-<div class="card tw" style="margin-top:16px"><table><thead><tr><th>Nota</th><th>Tomador</th><th>Serviço</th><th>Valor</th><th>Situação</th></tr></thead><tbody>${rows}</tbody></table></div>`}
+function login(){
+  const reg=S.mode==='register';
+  return `<div class="login"><div class="lp"><div class="brand" style="padding:0"><span class="mark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Simplifica MEI</div><h1>Tudo do seu MEI, num só lugar.</h1><p>Notas, boletos, serviços e conversa com a gente, sem depender de planilha.</p></div>
+<div class="rp"><div class="card"><h2 style="font-size:22px">${reg?'Criar conta':'Entrar'}</h2>
+${reg?`<label>Seu Nome<input id="nm" placeholder="Ex.: Maria Souza"></label><label>Nome da Empresa (MEI)<input id="emp" placeholder="Ex.: Doces da Maria"></label>`:''}
+<label>E-mail<input id="em" type="email" placeholder="seu@email.com" autocomplete="email"></label>
+<label>Senha<input id="pw" type="password" placeholder="••••••"></label>
+${S.msg?`<p class="proto" style="margin:0">${esc(S.msg)}</p>`:''}
+<button class="btn" data-a="${reg?'do-reg':'do-login'}">${reg?'Cadastrar':'Entrar'}</button>
+<button class="btn ol" data-a="toggle-mode">${reg?'Já tenho uma conta':'Criar nova conta'}</button>
+</div></div></div>`;
+}
 
-function vBol(){const rows=S.boletos.map(b=>`<tr><td>${esc(b.d)}</td><td>${b.venc}</td><td>${brl(b.v)}</td><td><span class="st ${b.pago?'':'a'}">${b.pago?'Pago':'Em aberto'}</span></td><td>${b.pago?'':`<button class="btn ol sm" data-a="copy" data-i="${b.id}">Copiar código</button> <button class="btn sm" data-a="pay" data-i="${b.id}">Marcar como pago</button>`}</td></tr>`).join('');
-return `<div class="proto">Dados de exemplo. Na versão real, a mensalidade vem de um gateway de pagamento e o DAS da integração com a Receita.</div><div class="card tw"><table><thead><tr><th>Cobrança</th><th>Vencimento</th><th>Valor</th><th>Situação</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><p class="mu" style="margin-top:10px">${esc(S.msg)}</p>`}
+function vInicio(){
+  const u=used(),l=lim(),p=S.profile?.plano||'Essencial',n=Math.max(u,l);
+  const pips=Array.from({length:n},(_,i)=>`<i class="${i<u?(i>=l?'x':'on'):''}"></i>`).join('');
+  const b=S.boletos.find(x=>!x.pago),tot=S.services.reduce((a,s)=>a+Number(s.valor),0),pr=p==='Premium';
+  return `<div class="card hero"><h1>${u} de ${l} notas usadas</h1><div class="pips" aria-hidden="true">${pips}</div><p class="mu">${u<l?`Ainda dá para emitir ${l-u}.`:'Limite do plano atingido. Cada nota extra custa R$ 20.'}</p><div style="margin-top:14px"><button class="btn" data-a="go-notas">Emitir nota</button></div></div>
+<div class="grid"><div class="card"><h3>Próximo boleto</h3>${b?`<div class="big">${brl(b.valor)}</div><p class="mu">${esc(b.descricao)}<br>vence em ${dt(b.vencimento)}</p><button class="btn ol sm" style="margin-top:10px" data-a="go-boletos">Ver boletos</button>`:'<p class="mu">Nenhum boleto em aberto.</p>'}</div>
+<div class="card"><h3>Serviços registrados</h3><div class="big">${brl(tot)}</div><p class="mu">${S.services.length} serviços registrados</p><button class="btn ol sm" style="margin-top:10px" data-a="go-servicos">Registrar serviço</button></div>
+<div class="card ${pr?'':'lock'}"><h3>Contratação de funcionário</h3><p class="mu">${pr?'Admissão, registro e folha mensal pela nossa equipe.':'Disponível no plano Premium. Fale com a equipe para mudar de plano.'}</p><button class="btn ol sm" style="margin-top:10px" data-a="go-chat">${pr?'Solicitar admissão':'Pedir upgrade'}</button></div></div>`;
+}
 
-function vChat(){const c=S.role==='c',list=S.msgs.map(m=>`<div class="m ${m.f===S.role?'me':''}">${esc(m.t)}<small>${m.f==='p'?'Equipe':'Maria'} · ${m.h}</small></div>`).join('');
-return `<div class="card chat"><h3>${c?'Equipe Simplifica MEI':'Maria Souza — Doces da Maria'}</h3><div class="msgs" id="ms">${list}</div><div class="row" style="margin:0"><label style="min-width:0"><input id="ci" placeholder="Escreva uma mensagem" autocomplete="off"></label><button class="btn" data-a="send">Enviar</button></div></div>`}
+function vServ(){
+  const rows=S.services.map(s=>`<tr><td>${esc(s.descricao)}</td><td>${dt(s.data)}</td><td>${brl(s.valor)}</td></tr>`).join('');
+  return `<div class="card"><div class="row"><label style="flex:2">Descrição do serviço<input id="sd" placeholder="Ex.: Entrega de 20 marmitas"></label><label>Valor (R$)<input id="sv" inputmode="decimal" placeholder="0,00"></label><button class="btn" data-a="add-serv">Registrar serviço</button></div><p class="mu">${esc(S.msg)}</p></div>
+<div class="card tw" style="margin-top:16px"><table><thead><tr><th>Serviço</th><th>Data</th><th>Valor</th></tr></thead><tbody>${rows||'<tr><td colspan="3" class="mu">Nenhum serviço registrado ainda.</td></tr>'}</tbody></table></div>`;
+}
 
-function vCli(){const rows=S.clients.map((c,i)=>{const u=i===0?used():c.used,l=LIM[c.plan];return `<tr><td><b>${esc(c.n)}</b><br><span class="mu">${esc(c.b)}</span></td><td><select data-plan="${i}" aria-label="Plano de ${esc(c.n)}">${Object.keys(LIM).map(p=>`<option ${p===c.plan?'selected':''}>${p}</option>`).join('')}</select></td><td>${u} de ${l}</td><td><span class="st ${u>=l?'a':''}">${u>=l?'No limite':'Dentro do plano'}</span></td></tr>`}).join('');
-return `<div class="proto">Trocar o plano muda as permissões do cliente na hora. Teste: mude a Maria para Premium e entre como cliente.</div><div class="card tw"><table><thead><tr><th>Cliente</th><th>Plano</th><th>Notas no mês</th><th>Situação</th></tr></thead><tbody>${rows}</tbody></table></div>`}
+function vNotas(){
+  const u=used(),l=lim(),ex=u>=l;
+  const rows=[...S.notas].reverse().map((n,idx)=>`<tr><td>#${S.notas.length-idx}</td><td>${esc(n.tomador)}</td><td>${esc(n.descricao)}</td><td>${brl(n.valor)}</td><td><span class="st ${n.excedente?'a':''}">${n.excedente?'Excedente R$ 20':'Emitida'}</span></td></tr>`).join('');
+  return `<div class="card">${ex?`<p class="proto" style="margin-bottom:12px">Você usou as ${l} notas do plano ${esc(S.profile?.plano)}. A próxima será marcada como excedente (R$ 20).</p>`:''}<div class="row"><label>Tomador<input id="nt" placeholder="Nome ou CNPJ do cliente"></label><label style="flex:2">Serviço prestado<input id="nd" placeholder="Descrição na nota"></label><label>Valor (R$)<input id="nv" inputmode="decimal" placeholder="0,00"></label><button class="btn" data-a="add-nota">${ex?'Emitir nota (R$ 20)':'Emitir nota'}</button></div><p class="mu">${esc(S.msg)}</p></div>
+<div class="card tw" style="margin-top:16px"><table><thead><tr><th>Nota</th><th>Tomador</th><th>Serviço</th><th>Valor</th><th>Situação</th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="mu">Nenhuma nota solicitada ainda.</td></tr>'}</tbody></table></div>`;
+}
+
+function vBol(){
+  if(isPrestador()){
+    const opts=S.clients.map(c=>`<option value="${c.id}" ${c.id===S.activeClientId?'selected':''}>${esc(c.nome||c.id)} (${esc(c.empresa||'Sem empresa')})</option>`).join('');
+    const rows=S.boletos.map(b=>{
+      const cli=S.clients.find(c=>c.id===b.cliente_id);
+      return `<tr><td><b>${esc(cli?.nome||'Cliente')}</b><br><small class="mu">${esc(b.descricao)}</small></td><td>${dt(b.vencimento)}</td><td>${brl(b.valor)}</td><td><span class="st ${b.pago?'':'a'}">${b.pago?'Pago':'Em aberto'}</span></td><td>${b.pago?'':`<button class="btn sm" data-a="pay" data-i="${b.id}">Marcar pago</button>`} <button class="btn ol sm" data-a="del-bol" data-i="${b.id}">Excluir</button></td></tr>`;
+    }).join('');
+    return `<div class="card"><div class="row"><label>Cliente<select id="bc">${opts}</select></label><label style="flex:2">Descrição<input id="bd" placeholder="Ex.: DAS MEI — Novembro"></label><label>Valor (R$)<input id="bv" inputmode="decimal" placeholder="86,05"></label><label>Vencimento<input id="bdt" type="date"></label></div><div class="row"><label style="flex:3">Linha digitável (opcional)<input id="bl" placeholder="Código de barras / Pix copia e cola"></label><button class="btn" data-a="add-bol">Lançar boleto</button></div><p class="mu">${esc(S.msg)}</p></div>
+<div class="card tw" style="margin-top:16px"><table><thead><tr><th>Cliente / Cobrança</th><th>Vencimento</th><th>Valor</th><th>Situação</th><th>Ações</th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="mu">Nenhum boleto cadastrado.</td></tr>'}</tbody></table></div>`;
+  }
+  const rows=S.boletos.map(b=>`<tr><td>${esc(b.descricao)}</td><td>${dt(b.vencimento)}</td><td>${brl(b.valor)}</td><td><span class="st ${b.pago?'':'a'}">${b.pago?'Pago':'Em aberto'}</span></td><td>${!b.pago && b.linha?`<button class="btn ol sm" data-a="copy" data-i="${b.id}">Copiar código</button>`:''}</td></tr>`).join('');
+  return `<div class="card tw"><table><thead><tr><th>Cobrança</th><th>Vencimento</th><th>Valor</th><th>Situação</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="mu">Nenhum boleto disponível.</td></tr>'}</tbody></table></div><p class="mu" style="margin-top:10px">${esc(S.msg)}</p>`;
+}
+
+function vChat(){
+  const p=isPrestador();
+  const targetId=p?S.activeClientId:S.user.id;
+  const filtered=S.msgs.filter(m=>m.cliente_id===targetId);
+  const mySender=p?'prestador':'cliente';
+  const cli=S.clients.find(c=>c.id===targetId);
+  const list=filtered.map(m=>`<div class="m ${m.de===mySender?'me':''}">${esc(m.texto)}<small>${m.de==='prestador'?'Equipe':esc(cli?.nome||S.profile?.nome||'Cliente')} · ${hm(m.criado_em)}</small></div>`).join('');
+  const selCli=p?`<div style="margin-bottom:12px"><label>Conversando com:<select id="chat-cli">${S.clients.map(c=>`<option value="${c.id}" ${c.id===targetId?'selected':''}>${esc(c.nome||'Sem nome')} — ${esc(c.empresa||'')}</option>`).join('')}</select></label></div>`:'';
+  return `<div class="card chat">${selCli}<h3>${p?esc(cli?.nome||'Selecione um cliente'):'Equipe Simplifica MEI'}</h3><div class="msgs" id="ms">${list||'<p class="mu">Nenhuma mensagem ainda. Envie um oi!</p>'}</div><div class="row" style="margin:0"><label style="min-width:0"><input id="ci" placeholder="Escreva uma mensagem" autocomplete="off"></label><button class="btn" data-a="send">Enviar</button></div></div>`;
+}
+
+function vCli(){
+  const rows=S.clients.map(c=>{
+    const u=S.notas.filter(n=>n.cliente_id===c.id).length, l=LIM[c.plano]||5;
+    return `<tr><td><b>${esc(c.nome||'Sem nome')}</b><br><span class="mu">${esc(c.empresa||'')}</span></td><td><select data-plan="${c.id}" aria-label="Plano de ${esc(c.nome)}">${Object.keys(LIM).map(p=>`<option ${p===c.plano?'selected':''}>${p}</option>`).join('')}</select></td><td>${u} de ${l}</td><td><span class="st ${u>=l?'a':''}">${u>=l?'No limite':'Dentro do plano'}</span></td></tr>`;
+  }).join('');
+  return `<div class="card tw"><table><thead><tr><th>Cliente</th><th>Plano</th><th>Notas emitidas</th><th>Situação</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="mu">Nenhum cliente cadastrado ainda.</td></tr>'}</tbody></table></div><p class="mu" style="margin-top:10px">${esc(S.msg)}</p>`;
+}
 
 const TITLES={inicio:'Início',servicos:'Serviços',notas:'Notas fiscais',boletos:'Boletos',chat:'Chat',clientes:'Clientes'};
-function render(){const a=$('#app');
-if(!S.role){a.innerHTML=login();return}
-const c=S.role==='c',nav=c?['inicio','servicos','notas','boletos','chat']:['clientes','chat'];
-const V={inicio:vInicio,servicos:vServ,notas:vNotas,boletos:vBol,chat:vChat,clientes:vCli}[S.view]();
-a.innerHTML=`<div class="shell"><aside><div class="brand"><span class="mark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Simplifica MEI</div>${nav.map(k=>`<button class="nv" data-a="go-${k}" ${k===S.view?'aria-current="page"':''}>${TITLES[k]}</button>`).join('')}<div class="who"><b>${c?'Maria Souza':'Equipe Simplifica'}</b>${c?'Doces da Maria':'Prestador'}<br><button data-a="out">Sair</button></div></aside>
-<main class="main"><div class="top"><h2>${TITLES[S.view]}</h2>${c?`<span class="badge">Plano ${me().plan} · ${lim()} notas por mês</span>`:'<span class="badge">Visão do prestador</span>'}</div>${V}</main></div>`;
-const m=$('#ms');if(m)m.scrollTop=m.scrollHeight}
+function render(){
+  const a=$('#app');
+  if(!S.user || !S.profile){a.innerHTML=login();return}
+  const c=!isPrestador(), nav=c?['inicio','servicos','notas','boletos','chat']:['clientes','boletos','chat'];
+  if(!nav.includes(S.view)) S.view=nav[0];
+  const V={inicio:vInicio,servicos:vServ,notas:vNotas,boletos:vBol,chat:vChat,clientes:vCli}[S.view]();
+  a.innerHTML=`<div class="shell"><aside><div class="brand"><span class="mark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Simplifica MEI</div>${nav.map(k=>`<button class="nv" data-a="go-${k}" ${k===S.view?'aria-current="page"':''}>${TITLES[k]}</button>`).join('')}<div class="who"><b>${esc(S.profile.nome||S.user.email)}</b>${c?esc(S.profile.empresa||'Cliente MEI'):'Prestador'}<br><button data-a="out">Sair</button></div></aside>
+<main class="main"><div class="top"><h2>${TITLES[S.view]}</h2>${c?`<span class="badge">Plano ${esc(S.profile.plano)} · ${lim()} notas/mês</span>`:'<span class="badge">Visão do prestador</span>'}</div>${V}</main></div>`;
+  const m=$('#ms');if(m)m.scrollTop=m.scrollHeight;
+}
 
 const num=v=>parseFloat(String(v).replace(/\./g,'').replace(',','.'));
-document.addEventListener('click',e=>{const b=e.target.closest('[data-a]');if(!b)return;const a=b.dataset.a;
-if(a==='in-c'||a==='in-p'){S.role=a==='in-c'?'c':'p';S.view=S.role==='c'?'inicio':'clientes'}
-else if(a==='out'){S.role=null}
-else if(a.startsWith('go-')){S.view=a.slice(3);S.msg=''}
-else if(a==='add-serv'){const d=$('#sd').value.trim(),v=num($('#sv').value);
-if(!d||!(v>0)){S.msg='Preencha a descrição e um valor maior que zero.'}
-else{S.services.unshift({d,v,t:new Date().toLocaleDateString('pt-BR')});S.msg='Serviço registrado.'}}
-else if(a==='add-nota'){const t=$('#nt').value.trim(),d=$('#nd').value.trim(),v=num($('#nv').value);
-if(!t||!d||!(v>0)){S.msg='Preencha tomador, serviço e um valor maior que zero.'}
-else{const ex=used()>=lim();S.notas.push({n:used()+1,tom:t,d,v,ex});S.msg=`Nota nº ${used()} emitida${ex?' (excedente)':''}.`}}
-else if(a==='pay'){S.boletos.find(x=>x.id==b.dataset.i).pago=true;S.msg='Pagamento registrado.'}
-else if(a==='copy'){const l=S.boletos.find(x=>x.id==b.dataset.i).l;try{navigator.clipboard.writeText(l)}catch(_){}S.msg='Código copiado: '+l}
-else if(a==='send'){const i=$('#ci'),t=i.value.trim();if(!t)return;S.msgs.push({f:S.role,t,h:hora()});
-if(S.role==='c')setTimeout(()=>{S.msgs.push({f:'p',t:'Recebi! Já estou vendo e te respondo em instantes.',h:hora()});if(S.view==='chat'&&S.role==='c'){render();const x=$('#ci');x&&x.focus()}},1300)}
-render();if(a==='send'){const x=$('#ci');x&&x.focus()}});
-document.addEventListener('change',e=>{const s=e.target.closest('[data-plan]');if(!s)return;S.clients[+s.dataset.plan].plan=s.value;render()});
-document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='ci')document.querySelector('[data-a="send"]').click()});
-render();
+
+document.addEventListener('click',async e=>{
+  const b=e.target.closest('[data-a]');if(!b)return;
+  const a=b.dataset.a;
+
+  if(a==='toggle-mode'){
+    S.mode=S.mode==='login'?'register':'login'; S.msg=''; render();
+  }
+  else if(a==='do-login'){
+    const email=$('#em').value.trim(), password=$('#pw').value;
+    S.msg='Entrando...'; render();
+    const {data,error}=await sb.auth.signInWithPassword({email,password});
+    if(error){S.msg='Erro ao entrar: '+error.message;render();return}
+    S.user=data.user; S.msg=''; await loadData();
+  }
+  else if(a==='do-reg'){
+    const nome=$('#nm').value.trim(), empresa=$('#emp').value.trim(), email=$('#em').value.trim(), password=$('#pw').value;
+    if(!nome||!email||!password){S.msg='Preencha nome, e-mail e senha.';render();return}
+    S.msg='Criando conta...'; render();
+    const {data,error}=await sb.auth.signUp({email,password,options:{data:{nome}}});
+    if(error){S.msg='Erro: '+error.message;render();return}
+    if(data.user){
+      await sb.from('profiles').update({nome,empresa}).eq('id',data.user.id);
+      S.user=data.user; S.msg=''; await loadData();
+    }
+  }
+  else if(a==='out'){
+    await sb.auth.signOut(); S.user=null; S.profile=null; render();
+  }
+  else if(a.startsWith('go-')){
+    S.view=a.slice(3); S.msg=''; render();
+  }
+  else if(a==='add-serv'){
+    const descricao=$('#sd').value.trim(), valor=num($('#sv').value);
+    if(!descricao||!(valor>0)){S.msg='Preencha a descrição e um valor maior que zero.';render();return}
+    const {error}=await sb.from('servicos').insert({cliente_id:S.user.id,descricao,valor});
+    S.msg=error?'Erro: '+error.message:'Serviço registrado com sucesso!';
+    await loadData();
+  }
+  else if(a==='add-nota'){
+    const tomador=$('#nt').value.trim(), descricao=$('#nd').value.trim(), valor=num($('#nv').value);
+    if(!tomador||!descricao||!(valor>0)){S.msg='Preencha tomador, serviço e um valor maior que zero.';render();return}
+    const excedente=used()>=lim();
+    const {error}=await sb.from('notas').insert({cliente_id:S.user.id,tomador,descricao,valor,excedente});
+    S.msg=error?'Erro: '+error.message:`Nota emitida${excedente?' (excedente)':''}!`;
+    await loadData();
+  }
+  else if(a==='add-bol'){
+    const cliente_id=$('#bc').value, descricao=$('#bd').value.trim(), valor=num($('#bv').value), vencimento=$('#bdt').value, linha=$('#bl').value.trim();
+    if(!cliente_id||!descricao||!(valor>0)||!vencimento){S.msg='Preencha cliente, descrição, valor e vencimento.';render();return}
+    const {error}=await sb.from('boletos').insert({cliente_id,descricao,valor,vencimento,linha});
+    S.msg=error?'Erro: '+error.message:'Boleto lançado para o cliente!';
+    await loadData();
+  }
+  else if(a==='pay'){
+    await sb.from('boletos').update({pago:true}).eq('id',b.dataset.i);
+    S.msg='Pagamento registrado.'; await loadData();
+  }
+  else if(a==='del-bol'){
+    await sb.from('boletos').delete().eq('id',b.dataset.i);
+    S.msg='Boleto removido.'; await loadData();
+  }
+  else if(a==='copy'){
+    const l=S.boletos.find(x=>x.id==b.dataset.i)?.linha||'';
+    try{navigator.clipboard.writeText(l)}catch(_){}
+    S.msg='Código copiado: '+l; render();
+  }
+  else if(a==='send'){
+    const i=$('#ci'), texto=i.value.trim(); if(!texto)return;
+    const cliente_id=isPrestador()?S.activeClientId:S.user.id;
+    const de=isPrestador()?'prestador':'cliente';
+    i.value='';
+    await sb.from('mensagens').insert({cliente_id,de,texto});
+    await loadData();
+    const x=$('#ci');if(x)x.focus();
+  }
+});
+
+document.addEventListener('change',async e=>{
+  const s=e.target.closest('[data-plan]');
+  if(s){
+    await sb.from('profiles').update({plano:s.value}).eq('id',s.dataset.plan);
+    S.msg='Plano do cliente atualizado!';
+    await loadData();
+  }
+  if(e.target.id==='chat-cli'){
+    S.activeClientId=e.target.value;
+    render();
+  }
+});
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&e.target.id==='ci') document.querySelector('[data-a="send"]').click();
+});
+
+// Verifica se já existe sessão ativa ao abrir a página
+sb.auth.getSession().then(({data:{session}})=>{
+  if(session?.user){S.user=session.user;loadData()}
+  else render();
+});
 </script>
 </body>
 </html>
+
