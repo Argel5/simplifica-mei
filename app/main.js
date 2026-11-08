@@ -39,19 +39,31 @@ document.addEventListener('click', async e => {
   else if (a.startsWith('go-')) {
     S.view = a.slice(3); S.msg = ''; render();
   }
-  else if (a === 'add-serv') {
-    const descricao = $('#sd').value.trim(), valor = num($('#sv').value);
+  else if (a === 'add-serv' || a === 'add-serv-nota') {
+    const comNota = a === 'add-serv-nota';
+    const descricao = $('#sd').value.trim(), valor = num($('#sv').value), tomador = $('#sto').value.trim();
     if (!descricao || !(valor > 0)) { S.msg = 'Preencha a descrição e um valor maior que zero.'; render(); return; }
-    const { error } = await sb.from('servicos').insert({ cliente_id: S.user.id, descricao, valor });
-    S.msg = error ? 'Erro: ' + error.message : 'Serviço registrado com sucesso!';
+    if (comNota && !tomador) { S.msg = 'Para gerar a nota, informe o tomador (nome ou CNPJ do cliente).'; render(); return; }
+    const { data: serv, error } = await sb.from('servicos').insert({ cliente_id: S.user.id, descricao, valor, tomador: tomador || null }).select().single();
+    if (error) { S.msg = 'Erro: ' + error.message; render(); return; }
+    if (comNota) {
+      const excedente = used() >= lim();
+      const { error: e2 } = await sb.from('notas').insert({ cliente_id: S.user.id, servico_id: serv.id, tomador, descricao, valor, excedente });
+      S.msg = e2 ? 'Serviço registrado, mas a nota não foi gerada: ' + e2.message : `Serviço registrado e nota solicitada${excedente ? ' (excedente)' : ''}!`;
+    } else {
+      S.msg = 'Serviço registrado.';
+    }
     await loadData();
   }
-  else if (a === 'add-nota') {
-    const tomador = $('#nt').value.trim(), descricao = $('#nd').value.trim(), valor = num($('#nv').value);
-    if (!tomador || !descricao || !(valor > 0)) { S.msg = 'Preencha tomador, serviço e um valor maior que zero.'; render(); return; }
+  else if (a === 'gen-nota') {
+    const id = Number(b.dataset.i);
+    const sv = S.services.find(x => x.id === id);
+    if (!sv || S.notas.some(n => n.servico_id === id)) return;
+    const tomador = sv.tomador || (window.prompt('Nome ou CNPJ do cliente que vai receber a nota:') || '').trim();
+    if (!tomador) { S.msg = 'Informe o tomador para gerar a nota.'; render(); return; }
     const excedente = used() >= lim();
-    const { error } = await sb.from('notas').insert({ cliente_id: S.user.id, tomador, descricao, valor, excedente });
-    S.msg = error ? 'Erro: ' + error.message : `Nota emitida${excedente ? ' (excedente)' : ''}!`;
+    const { error } = await sb.from('notas').insert({ cliente_id: S.user.id, servico_id: id, tomador, descricao: sv.descricao, valor: sv.valor, excedente });
+    S.msg = error ? 'Erro: ' + error.message : `Nota solicitada${excedente ? ' (excedente)' : ''}!`;
     await loadData();
   }
   else if (a === 'add-bol') {

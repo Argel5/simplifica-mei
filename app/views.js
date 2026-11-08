@@ -20,23 +20,28 @@ function vInicio() {
   const u = used(), l = lim(), p = S.profile?.plano || 'Essencial', n = Math.max(u, l);
   const pips = Array.from({ length: n }, (_, i) => `<i class="${i < u ? (i >= l ? 'x' : 'on') : ''}"></i>`).join('');
   const b = S.boletos.find(x => !x.pago), tot = S.services.reduce((a, s) => a + Number(s.valor), 0), pr = p === 'Premium';
-  return `<div class="card hero"><h1>${u} de ${l} notas usadas</h1><div class="pips" aria-hidden="true">${pips}</div><p class="mu">${u < l ? `Ainda dá para emitir ${l - u}.` : 'Limite do plano atingido. Cada nota extra custa R$ 20.'}</p><div style="margin-top:14px"><button class="btn" data-a="go-notas">Emitir nota</button></div></div>
+  return `<div class="card hero"><h1>${u} de ${l} notas usadas</h1><div class="pips" aria-hidden="true">${pips}</div><p class="mu">${u < l ? `Ainda dá para gerar ${l - u}.` : 'Limite do plano atingido. Cada nota extra custa R$ 20.'}</p><div style="margin-top:14px"><button class="btn" data-a="go-servicos">Gerar nota</button></div></div>
 <div class="grid"><div class="card"><h3>Próximo boleto</h3>${b ? `<div class="big">${brl(b.valor)}</div><p class="mu">${esc(b.descricao)}<br>vence em ${dt(b.vencimento)}</p><button class="btn ol sm" style="margin-top:10px" data-a="go-boletos">Ver boletos</button>` : '<p class="mu">Nenhum boleto em aberto.</p>'}</div>
 <div class="card"><h3>Serviços registrados</h3><div class="big">${brl(tot)}</div><p class="mu">${S.services.length} serviços registrados</p><button class="btn ol sm" style="margin-top:10px" data-a="go-servicos">Registrar serviço</button></div>
 <div class="card ${pr ? '' : 'lock'}"><h3>Contratação de funcionário</h3><p class="mu">${pr ? 'Admissão, registro e folha mensal pela nossa equipe.' : 'Disponível no plano Premium. Fale com a equipe para mudar de plano.'}</p><button class="btn ol sm" style="margin-top:10px" data-a="go-chat">${pr ? 'Solicitar admissão' : 'Pedir upgrade'}</button></div></div>`;
 }
 
 function vServ() {
-  const rows = S.services.map(s => `<tr><td>${esc(s.descricao)}</td><td>${dt(s.data)}</td><td>${brl(s.valor)}</td></tr>`).join('');
-  return `<div class="card"><div class="row"><label style="flex:2">Descrição do serviço<input id="sd" placeholder="Ex.: Entrega de 20 marmitas"></label><label>Valor (R$)<input id="sv" inputmode="decimal" placeholder="0,00"></label><button class="btn" data-a="add-serv">Registrar serviço</button></div><p class="mu">${esc(S.msg)}</p></div>
-<div class="card tw" style="margin-top:16px"><table><thead><tr><th>Serviço</th><th>Data</th><th>Valor</th></tr></thead><tbody>${rows || '<tr><td colspan="3" class="mu">Nenhum serviço registrado ainda.</td></tr>'}</tbody></table></div>`;
-}
-
-function vNotas() {
   const u = used(), l = lim(), ex = u >= l;
-  const rows = [...S.notas].reverse().map((n, idx) => `<tr><td>#${S.notas.length - idx}</td><td>${esc(n.tomador)}</td><td>${esc(n.descricao)}</td><td>${brl(n.valor)}</td><td><span class="st ${n.excedente ? 'a' : ''}">${n.excedente ? 'Excedente R$ 20' : 'Emitida'}</span></td></tr>`).join('');
-  return `<div class="card">${ex ? `<p class="proto" style="margin-bottom:12px">Você usou as ${l} notas do plano ${esc(S.profile?.plano)}. A próxima será marcada como excedente (R$ 20).</p>` : ''}<div class="row"><label>Tomador<input id="nt" placeholder="Nome ou CNPJ do cliente"></label><label style="flex:2">Serviço prestado<input id="nd" placeholder="Descrição na nota"></label><label>Valor (R$)<input id="nv" inputmode="decimal" placeholder="0,00"></label><button class="btn" data-a="add-nota">${ex ? 'Emitir nota (R$ 20)' : 'Emitir nota'}</button></div><p class="mu">${esc(S.msg)}</p></div>
-<div class="card tw" style="margin-top:16px"><table><thead><tr><th>Nota</th><th>Tomador</th><th>Serviço</th><th>Valor</th><th>Situação</th></tr></thead><tbody>${rows || '<tr><td colspan="5" class="mu">Nenhuma nota solicitada ainda.</td></tr>'}</tbody></table></div>`;
+  const notaDe = id => S.notas.find(n => n.servico_id === id);
+  const rows = S.services.map(sv => {
+    const n = notaDe(sv.id);
+    const nota = n
+      ? `<span class="st ${n.excedente ? 'a' : ''}">${n.excedente ? 'Nota solicitada · excedente R$ 20' : 'Nota solicitada'}</span>`
+      : `<button class="btn ol sm" data-a="gen-nota" data-i="${sv.id}">Gerar nota</button>`;
+    return `<tr><td>${esc(sv.descricao)}${sv.tomador ? `<br><small class="mu">${esc(sv.tomador)}</small>` : ''}</td><td>${dt(sv.data)}</td><td>${brl(sv.valor)}</td><td>${nota}</td></tr>`;
+  }).join('');
+  return `<div class="card">${ex ? `<p class="proto" style="margin-bottom:12px">Você usou as ${l} notas do plano ${esc(S.profile?.plano)}. A próxima será marcada como excedente (R$ 20).</p>` : ''}
+<div class="row"><label style="flex:2">Descrição do serviço<input id="sd" placeholder="Ex.: Entrega de 20 marmitas"></label><label>Valor (R$)<input id="sv" inputmode="decimal" placeholder="0,00"></label></div>
+<div class="row"><label style="flex:2">Tomador (quem recebe a nota)<input id="sto" placeholder="Nome ou CNPJ do cliente. Obrigatório só se for gerar nota"></label></div>
+<div class="row" style="margin-bottom:0"><button class="btn ol" data-a="add-serv">Só registrar serviço</button><button class="btn" data-a="add-serv-nota">Registrar e gerar nota${ex ? ' (R$ 20)' : ''}</button></div>
+<p class="mu" style="margin-top:12px">${esc(S.msg)}</p></div>
+<div class="card tw" style="margin-top:16px"><table><thead><tr><th>Serviço</th><th>Data</th><th>Valor</th><th>Nota</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="mu">Nenhum serviço registrado ainda.</td></tr>'}</tbody></table></div>`;
 }
 
 function vBol() {
@@ -72,14 +77,14 @@ function vCli() {
   return `<div class="card tw"><table><thead><tr><th>Cliente</th><th>Plano</th><th>Notas no mês</th><th>Situação</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="mu">Nenhum cliente cadastrado ainda.</td></tr>'}</tbody></table></div><p class="mu" style="margin-top:10px">${esc(S.msg)}</p>`;
 }
 
-const TITLES = { inicio: 'Início', servicos: 'Serviços', notas: 'Notas fiscais', boletos: 'Boletos', chat: 'Chat', clientes: 'Clientes' };
+const TITLES = { inicio: 'Início', servicos: 'Serviços e notas', boletos: 'Boletos', chat: 'Chat', clientes: 'Clientes' };
 
 export function render() {
   const a = $('#app');
   if (!S.user || !S.profile) { a.innerHTML = login(); return; }
-  const c = !isPrestador(), nav = c ? ['inicio', 'servicos', 'notas', 'boletos', 'chat'] : ['clientes', 'boletos', 'chat'];
+  const c = !isPrestador(), nav = c ? ['inicio', 'servicos', 'boletos', 'chat'] : ['clientes', 'boletos', 'chat'];
   if (!nav.includes(S.view)) S.view = nav[0];
-  const V = { inicio: vInicio, servicos: vServ, notas: vNotas, boletos: vBol, chat: vChat, clientes: vCli }[S.view]();
+  const V = { inicio: vInicio, servicos: vServ, boletos: vBol, chat: vChat, clientes: vCli }[S.view]();
   a.innerHTML = `<div class="shell"><aside><div class="brand">${LOGO}Simplifica MEI</div>${nav.map(k => `<button class="nv" data-a="go-${k}" ${k === S.view ? 'aria-current="page"' : ''}>${TITLES[k]}</button>`).join('')}<div class="who"><b>${esc(S.profile.nome || S.user.email)}</b>${c ? esc(S.profile.empresa || 'Cliente MEI') : 'Prestador'}<br><button data-a="out">Sair</button></div></aside>
 <main class="main"><div class="top"><h2>${TITLES[S.view]}</h2>${c ? `<span class="badge">Plano ${esc(S.profile.plano)} · ${lim()} notas/mês</span>` : '<span class="badge">Visão do prestador</span>'}</div>${V}</main></div>`;
   const m = $('#ms'); if (m) m.scrollTop = m.scrollHeight;
