@@ -104,7 +104,9 @@ const S={
 };
 
 const isPrestador=()=>S.profile?.role==='prestador';
-const used=()=>S.notas.length;
+// Conta só as notas do mês atual (o limite do plano é mensal)
+const noMes=n=>{const d=new Date(n.criado_em),h=new Date();return d.getMonth()===h.getMonth()&&d.getFullYear()===h.getFullYear()};
+const used=()=>S.notas.filter(noMes).length;
 const lim=()=>LIM[S.profile?.plano||'Essencial']||5;
 
 async function loadData(){
@@ -145,7 +147,8 @@ async function loadData(){
 sb.channel('chat-channel')
   .on('postgres_changes',{event:'INSERT',schema:'public',table:'mensagens'},payload=>{
     if(S.user){
-      S.msgs.push(payload.new);
+      // evita duplicar quando a mensagem já veio no recarregamento
+      if(!S.msgs.some(m=>m.id===payload.new.id)) S.msgs.push(payload.new);
       if(S.view==='chat') render();
     }
   }).subscribe();
@@ -213,10 +216,10 @@ function vChat(){
 
 function vCli(){
   const rows=S.clients.map(c=>{
-    const u=S.notas.filter(n=>n.cliente_id===c.id).length, l=LIM[c.plano]||5;
+    const u=S.notas.filter(n=>n.cliente_id===c.id&&noMes(n)).length, l=LIM[c.plano]||5;
     return `<tr><td><b>${esc(c.nome||'Sem nome')}</b><br><span class="mu">${esc(c.empresa||'')}</span></td><td><select data-plan="${c.id}" aria-label="Plano de ${esc(c.nome)}">${Object.keys(LIM).map(p=>`<option ${p===c.plano?'selected':''}>${p}</option>`).join('')}</select></td><td>${u} de ${l}</td><td><span class="st ${u>=l?'a':''}">${u>=l?'No limite':'Dentro do plano'}</span></td></tr>`;
   }).join('');
-  return `<div class="card tw"><table><thead><tr><th>Cliente</th><th>Plano</th><th>Notas emitidas</th><th>Situação</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="mu">Nenhum cliente cadastrado ainda.</td></tr>'}</tbody></table></div><p class="mu" style="margin-top:10px">${esc(S.msg)}</p>`;
+  return `<div class="card tw"><table><thead><tr><th>Cliente</th><th>Plano</th><th>Notas no mês</th><th>Situação</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="mu">Nenhum cliente cadastrado ainda.</td></tr>'}</tbody></table></div><p class="mu" style="margin-top:10px">${esc(S.msg)}</p>`;
 }
 
 const TITLES={inicio:'Início',servicos:'Serviços',notas:'Notas fiscais',boletos:'Boletos',chat:'Chat',clientes:'Clientes'};
@@ -251,15 +254,17 @@ document.addEventListener('click',async e=>{
     const nome=$('#nm').value.trim(), empresa=$('#emp').value.trim(), email=$('#em').value.trim(), password=$('#pw').value;
     if(!nome||!email||!password){S.msg='Preencha nome, e-mail e senha.';render();return}
     S.msg='Criando conta...'; render();
-    const {data,error}=await sb.auth.signUp({email,password,options:{data:{nome}}});
+    const {data,error}=await sb.auth.signUp({email,password,options:{data:{nome,empresa}}});
     if(error){S.msg='Erro: '+error.message;render();return}
-    if(data.user){
-      await sb.from('profiles').update({nome,empresa}).eq('id',data.user.id);
-      S.user=data.user; S.msg=''; await loadData();
-    }
+    if(!data.session){S.mode='login';S.msg='Conta criada! Confirme o e-mail que enviamos e depois entre.';render();return}
+    S.user=data.user; S.msg=''; await loadData();
   }
   else if(a==='out'){
-    await sb.auth.signOut(); S.user=null; S.profile=null; render();
+    await sb.auth.signOut();
+    S.user=null; S.profile=null; S.activeClientId=null;
+    S.clients=[]; S.services=[]; S.notas=[]; S.boletos=[]; S.msgs=[];
+    S.view='inicio'; S.msg='';
+    render();
   }
   else if(a.startsWith('go-')){
     S.view=a.slice(3); S.msg=''; render();
@@ -335,4 +340,3 @@ sb.auth.getSession().then(({data:{session}})=>{
 </script>
 </body>
 </html>
-
